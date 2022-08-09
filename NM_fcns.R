@@ -210,7 +210,7 @@ ylist_pred <- function(X, y_list, reg=T){
   lapply(y_list, pred)
 }
 
-ylist_pred_OS <- function(D_full, y_list, K, init_obj, ncores, idx_train, idx_test) {
+ylist_pred_OS <- function(X, y_list, idx_train, idx_test) {
   #' D_full: distance matrix including both training and testing indices
   #' y_list: list of targets. Can contain NA but should be the same length as nrow(D_full)
   #' K: feature dimension
@@ -219,12 +219,10 @@ ylist_pred_OS <- function(D_full, y_list, K, init_obj, ncores, idx_train, idx_te
   #' idx_train: indices for the training objects
   #' idx_test: indices for the testing objects
   #' return: a list of in-sample and out-of-sample R2, SSE and reg for each y
-  n <- nrow(D_full)
+  n <- nrow(X)
   if (any(sapply(y_list, length) != n)) {
     stop("Unmatched dimension for distance matrix and at least one target!\n")
   }
-  X_est <- mds_large(D_full, K, init_obj, ncores, F)
-  
   r2_ridge_OS <- r2_ridge_IS <- r2_OLS_OS <- r2_OLS_IS <- rep(NA, length(y_list))
   for(i in 1:length(y_list)){
     idx_train_nonna <- idx_train; idx_test_nonna <- idx_test
@@ -235,7 +233,7 @@ ylist_pred_OS <- function(D_full, y_list, K, init_obj, ncores, idx_train, idx_te
       idx_test_nonna <- intersect(idx_test_nonna, (1:n)[-idx_na])
     }
     y_train <- y[idx_train_nonna]; y_test <- y[idx_test_nonna]
-    X_train <- X_est[idx_train_nonna, ]; X_test <- X_est[idx_test_nonna, ]
+    X_train <- X[idx_train_nonna, ]; X_test <- X[idx_test_nonna, ]
     
     # ridge
     cv_res <- cv.glmnet(X_train, y_train)
@@ -253,7 +251,7 @@ ylist_pred_OS <- function(D_full, y_list, K, init_obj, ncores, idx_train, idx_te
     r2_OLS_OS[i] <- cor(y_OLS_OS, y_test)^2
   }
   
-  return(list(X_est=X_est, r2_OLS_IS=r2_OLS_IS, r2_OLS_OS=r2_OLS_OS, 
+  return(list(r2_OLS_IS=r2_OLS_IS, r2_OLS_OS=r2_OLS_OS, 
               r2_ridge_IS=r2_ridge_IS, r2_ridge_OS=r2_ridge_OS))
 }
  
@@ -365,7 +363,7 @@ NM_beta_update_multi <- function(D_list, y_list, K, init_obj, X_simplex, beta_si
 
 main_large_NM_multi <- function(D_list, y_list, K, beta_simplex, init_obj, l_beta, 
                                 reg=T, tol=1e-1, alpha=1, gamma=2, rho=1/2, sigma=1/2, 
-                                minit, maxit, ncores, output=T, seed=1234){
+                                minit=3, maxit=50, ncores=detectCores()-1, output=T){
   #' D_list: list of distance candidate matrices
   #' y_list: list of y 
   #' K: feature dimension
@@ -421,6 +419,7 @@ main_large_NM_multi <- function(D_list, y_list, K, beta_simplex, init_obj, l_bet
   sse_IS_cp <- sse_IS_cp[order_idx, ]; r2_IS_cp <- r2_IS_cp[order_idx, ]
   beta_cp <- list(beta_simplex); loss_cp <- list(loss_simplex) 
   S <- sqrt(sum((loss_simplex - mean(loss_simplex))^2) / dim_beta)
+  S_cp <- S
   
   # iteration
   iter <- 0
@@ -430,36 +429,37 @@ main_large_NM_multi <- function(D_list, y_list, K, beta_simplex, init_obj, l_bet
     res <- NM_beta_update_multi(D_list, y_list, K, init_obj, X_simplex, beta_simplex, loss_simplex,
                                 l_beta, reg, alpha, gamma, rho, sigma, ncores)
     beta_simplex <- res$beta_simplex; beta_cp <- append(beta_cp, beta_simplex)
-    loss_simplex <- res$loss_simplex; loss_cp <- append(loss_cp, loss_simplex)
+    loss_simplex <- res$loss_simplex; loss_cp <- rbind(loss_cp, loss_simplex)
     X_simplex <- res$X_simplex
     S <- sqrt(sum((loss_simplex-mean(loss_simplex))^2) / dim_beta)
     pred_res <- ylist_pred(X_simplex[[1]], y_list, reg)
     r2_IS_cp <- rbind(r2_IS_cp, sapply(pred_res, "[[", "r.squared"))
     sse_IS_cp <- rbind(sse_IS_cp, sapply(pred_res, "[[", "sse"))
+    S_cp <- c(S_cp, S)
     
     # printout
     if(output){
       if(dim_beta == 3) {
-        cat("iter=", iter, "beta1=", sprintf("%.3f", beta_simplex[[1]]), 
-            "loss=", sprintf("%.3f", loss_simplex), res$type, "S=", round(S, 3), 
-            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), "\n")
+        cat("iter=", iter, "beta1=", sprintf("%.2f", beta_simplex[[1]]), 
+            "loss=", sprintf("%.2f", loss_simplex[1:2]), "S=", round(S, 2), 
+            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), res$type, "\n")
       }
       if(dim_beta == 2) {
-        cat("iter=", iter, "beta1=", sprintf("%.3f", beta_simplex[[1]]), 
-            "loss=", sprintf("%.3f", loss_simplex), res$type, "S=", round(S, 3), 
-            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), "\n")
+        cat("iter=", iter, "beta1=", sprintf("%.2f", beta_simplex[[1]]), 
+            "loss=", sprintf("%.2f", loss_simplex[1:2]), "S=", round(S, 2), 
+            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), res$type, "\n")
       }
       if(dim_beta == 1) {
-        cat("iter=", iter, "beta1=", sprintf("%.3f", beta_simplex[[1]]), 
-            "loss=", sprintf("%.3f", loss_simplex), res$type, "S=", round(S, 3), 
-            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), "\n")
+        cat("iter=", iter, "beta1=", sprintf("%.2f", beta_simplex[[1]]), 
+            "loss=", sprintf("%.2f", loss_simplex[1:2]), "S=", round(S, 2), 
+            "r2=", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), res$type, "\n")
       }
       cat("t_iter="); print(Sys.time()-t1)
     }
   }
-  cat("Final mean IS r2 =", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 3), "\n")
+  cat("Final mean IS r2 =", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 2), "\n")
   
-  res <- list(beta_est=beta_simplex[[1]], theta=X_simplex[[1]], y_list=y_list,
+  res <- list(beta_est=beta_simplex[[1]], theta=X_simplex[[1]], y_list=y_list, S_cp=S_cp, 
               beta_cp=beta_cp, loss_cp=loss_cp, sse_IS_cp=sse_IS_cp, r2_IS_cp=r2_IS_cp, iter=iter)
   return(res)
 }

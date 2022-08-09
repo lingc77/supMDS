@@ -459,7 +459,7 @@ main_large_NM_multi <- function(D_list, y_list, K, beta_simplex, init_obj, l_bet
   }
   cat("Final mean IS r2 =", round(mean(r2_IS_cp[nrow(r2_IS_cp), ]), 2), "\n")
   
-  res <- list(beta_est=beta_simplex[[1]], theta=X_simplex[[1]], y_list=y_list, S_cp=S_cp, 
+  res <- list(beta_est=beta_simplex[[1]], theta=X_simplex[[1]], y_list=y_list, S_cp=S_cp,
               beta_cp=beta_cp, loss_cp=loss_cp, sse_IS_cp=sse_IS_cp, r2_IS_cp=r2_IS_cp, iter=iter)
   return(res)
 }

@@ -86,7 +86,7 @@ for(i_cv in 1:5){
     res_save[[i_cv]][[i_item]] <- res
     
     cat("i_cv=", i_cv, "item=", item, "iter=", res$iter, "beta est=", res$beta_est, "\n")
-    
+ 
   }
   save(res_save, file=paste0("/home/lc3521/supMDS/real_data/multi_", d_num, "d_cv_res_0809.RData"))
 }
